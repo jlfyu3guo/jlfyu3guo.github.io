@@ -1,11 +1,22 @@
 import './styles.css';
 import { createIcons, Search, Star, Plus, ArrowUpRight, ArrowDownRight, BriefcaseBusiness, ChartNoAxesCombined, LayoutDashboard, WalletCards, X, RefreshCw } from 'lucide';
 import { marketIndexes, stocks, defaultHoldings } from './data.js';
+import { fetchQuotes } from './quote-api.js';
+
+const quoteState = {
+  status: 'loading',
+  source: null,
+  endpoint: null,
+  cache: null,
+  session: null,
+  updatedAt: null,
+  error: null
+};
+const quoteSymbols = [...marketIndexes.map((item) => item.symbol), ...stocks.map((item) => item.symbol)];
 
 const STORAGE = { watchlist: 'jstock-watchlist-v1', holdings: 'jstock-holdings-v1' };
 const state = {
   selected: '600519',
-  range: '1M',
   sort: 'default',
   query: '',
   mobileView: 'market',
@@ -25,42 +36,95 @@ const money = (value) => `¥${fmt(value)}`;
 const signClass = (value) => value >= 0 ? 'up' : 'down';
 const sign = (value) => `${value >= 0 ? '+' : ''}${fmt(value)}%`;
 const selectedStock = () => stocks.find((stock) => stock.symbol === state.selected) || stocks[0];
-const RANGE_POINTS = { '1D': 8, '1W': 12, '1M': 31, '3M': 24, '1Y': 18 };
-
-function rangeValues(values) {
-  const count = RANGE_POINTS[state.range] || values.length;
-  if (state.range === '1M') return values;
-  const sampled = Array.from({ length: count }, (_, index) => {
-    const position = index / (count - 1) * (values.length - 1);
-    const left = Math.floor(position), right = Math.min(values.length - 1, Math.ceil(position));
-    const blend = position - left;
-    const base = values[left] * (1 - blend) + values[right] * blend;
-    const amplitude = state.range === '1Y' ? .035 : state.range === '3M' ? .018 : .004;
-    return base * (1 + Math.sin(index * 1.73 + count) * amplitude);
-  });
-  sampled[sampled.length - 1] = values.at(-1);
-  return sampled;
-}
-
-function sparkline(values, width = 120, height = 38) {
-  const min = Math.min(...values), max = Math.max(...values), spread = max - min || 1;
-  return values.map((value, index) => `${(index / (values.length - 1)) * width},${height - ((value - min) / spread) * (height - 4) - 2}`).join(' ');
-}
+const sourceName = (source) => ({ tencent: '腾讯行情', sina: '新浪行情', xueqiu: '雪球行情' }[source] || '边缘行情');
+const sessionName = (session) => {
+  if (String(session).startsWith('open')) return '交易中';
+  if (session === 'weekend') return '周末休市';
+  if (session === 'closed') return '已收市';
+  return '行情快照';
+};
+const quoteTime = (value) => {
+  if (!value) return '--';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '--' : new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date);
+};
+const volumeText = (value) => value ? `${fmt(value / 10000, 1)}万手` : '--';
 
 function chart(stock) {
-  const width = 760, height = 310, leftPad = 54, rightPad = 18, topPad = 20, priceBottom = 226, volumeTop = 248, volumeBottom = 286;
-  const values = rangeValues(stock.history);
-  const min = Math.min(...values) * .992, max = Math.max(...values) * 1.008;
-  const points = values.map((value, index) => ({ x: leftPad + index / (values.length - 1) * (width - leftPad - rightPad), y: topPad + (max - value) / (max - min) * (priceBottom - topPad) }));
-  const line = points.map((p) => `${p.x},${p.y}`).join(' ');
-  const area = `${leftPad},${priceBottom} ${line} ${width - rightPad},${priceBottom}`;
-  const gridRows = [0, 1, 2, 3];
-  const grids = gridRows.map(i => { const y = topPad + i * (priceBottom-topPad)/3; return `<line x1="${leftPad}" y1="${y}" x2="${width-rightPad}" y2="${y}"/><text x="${leftPad-9}" y="${y+4}" text-anchor="end">${fmt(max-(max-min)*i/3)}</text>`; }).join('');
-  const volumes = values.map((value,index) => 24 + Math.abs(Math.sin(index * 1.37 + stock.price)) * 72);
-  const bars = volumes.map((value,index) => { const barWidth = Math.max(3,(width-leftPad-rightPad)/values.length*.58); const x = points[index].x-barWidth/2; const h = value/100*(volumeBottom-volumeTop); const rising = index===0 || values[index]>=values[index-1]; return `<rect x="${x}" y="${volumeBottom-h}" width="${barWidth}" height="${h}" fill="${rising?'#dc4d4d':'#10966a'}" opacity=".42"/>`; }).join('');
-  const labels = state.range === '1D' ? ['09:30','11:30','13:00','15:00'] : state.range === '1W' ? ['周一','周二','周三','周四','周五'] : state.range === '1Y' ? ['2025-08','2025-12','2026-04','2026-07'] : ['06-24','07-04','07-14','07-24'];
-  const xLabels = labels.map((label,index) => `<text x="${leftPad+index/(labels.length-1)*(width-leftPad-rightPad)}" y="305" text-anchor="${index===0?'start':index===labels.length-1?'end':'middle'}">${label}</text>`).join('');
-  return `<svg id="priceChart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${stock.name}${state.range}价格与成交量走势"><defs><linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d94d4d" stop-opacity=".17"/><stop offset="1" stop-color="#d94d4d" stop-opacity="0"/></linearGradient></defs><g class="chart-grid">${grids}</g><polygon points="${area}" fill="url(#areaFill)"/><polyline points="${line}" fill="none" stroke="#d94d4d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${points.at(-1).x}" cy="${points.at(-1).y}" r="4" fill="#fff" stroke="#d94d4d" stroke-width="3"/><g class="volume-bars">${bars}</g><g class="chart-labels">${xLabels}<text x="${leftPad}" y="243">成交量</text></g></svg>`;
+  const width = 760, height = 210, leftPad = 72, rightPad = 28;
+  const prices = {
+    prevClose: Number(stock.prevClose),
+    open: Number(stock.open),
+    low: Number(stock.low),
+    high: Number(stock.high),
+    current: Number(stock.price)
+  };
+  if (Object.values(prices).some((value) => !(value > 0))) {
+    return '<div class="chart-empty">当前行情未提供完整的当日价格区间</div>';
+  }
+  const min = Math.min(...Object.values(prices)) * .998;
+  const max = Math.max(...Object.values(prices)) * 1.002;
+  const scale = (value) => leftPad + (value - min) / (max - min || 1) * (width - leftPad - rightPad);
+  const lowX = scale(prices.low), highX = scale(prices.high);
+  const markers = [
+    { label: '昨收', value: prices.prevClose, y: 50, color: '#697586' },
+    { label: '今开', value: prices.open, y: 92, color: '#e3a338' },
+    { label: '现价', value: prices.current, y: 134, color: prices.current >= prices.prevClose ? '#d94d4d' : '#0f9f6e' }
+  ].map((item) => { const x = scale(item.value); return `<g><line x1="${x}" y1="${item.y-10}" x2="${x}" y2="${item.y+10}" stroke="${item.color}" stroke-width="3"/><circle cx="${x}" cy="${item.y}" r="4" fill="#fff" stroke="${item.color}" stroke-width="2.5"/><text x="${x}" y="${item.y-16}" text-anchor="middle" fill="${item.color}">${item.label} ${fmt(item.value)}</text></g>`; }).join('');
+  return `<svg id="priceChart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${stock.name}当日价格区间：最低${fmt(prices.low)}，最高${fmt(prices.high)}，昨收${fmt(prices.prevClose)}，今开${fmt(prices.open)}，现价${fmt(prices.current)}"><line x1="${lowX}" y1="176" x2="${highX}" y2="176" stroke="#bdc6ca" stroke-width="8" stroke-linecap="round"/><circle cx="${lowX}" cy="176" r="6" fill="#0f9f6e"/><circle cx="${highX}" cy="176" r="6" fill="#d94d4d"/><text x="${lowX}" y="200" text-anchor="middle">最低 ${fmt(prices.low)}</text><text x="${highX}" y="200" text-anchor="middle">最高 ${fmt(prices.high)}</text>${markers}</svg>`;
+}
+
+function applyQuotes(items) {
+  for (const quote of items) {
+    const target = stocks.find((item) => item.symbol === quote.symbol) || marketIndexes.find((item) => item.symbol === quote.symbol);
+    if (!target) continue;
+    if ('value' in target) {
+      target.value = quote.price;
+      target.change = quote.change;
+      target.quoteTime = quote.quoteTime;
+      continue;
+    }
+    if (target.history?.length) {
+      const last = target.history.at(-1) || quote.price;
+      const scale = quote.price / last;
+      target.history = target.history.map((value) => value * scale);
+    }
+    Object.assign(target, {
+      price: quote.price,
+      change: quote.change,
+      prevClose: quote.prevClose,
+      open: quote.open,
+      high: quote.high,
+      low: quote.low,
+      volumeHands: quote.volumeHands,
+      quoteTime: quote.quoteTime,
+      liveName: quote.name || target.name
+    });
+  }
+}
+
+async function refreshQuotes({ force = false } = {}) {
+  if (quoteState.status === 'loading' && quoteState.updatedAt && !force) return;
+  quoteState.status = 'loading';
+  quoteState.error = null;
+  render();
+  try {
+    const result = await fetchQuotes(quoteSymbols, { refresh: force });
+    applyQuotes(result.items);
+    Object.assign(quoteState, {
+      status: 'ready',
+      source: result.source,
+      endpoint: result.endpoint,
+      cache: result.cache,
+      session: result.session,
+      updatedAt: new Date(),
+      error: null
+    });
+  } catch (error) {
+    quoteState.status = 'error';
+    quoteState.error = error?.message || '行情服务暂时不可用';
+  }
+  render();
 }
 
 function portfolio() {
@@ -91,7 +155,7 @@ function render() {
     <header class="app-header">
       <a class="brand" href="#" aria-label="JStock 首页"><span class="brand-mark">J</span><strong>JStock</strong></a>
       <nav aria-label="主导航"><button class="nav-item active"><i data-lucide="layout-dashboard"></i>行情工作台</button><button class="nav-item" data-view="portfolio"><i data-lucide="wallet-cards"></i>我的组合</button></nav>
-      <div class="snapshot"><span class="status-dot"></span>演示快照 · 15:00</div>
+      <div class="snapshot ${quoteState.status}"><span class="status-dot"></span><span>${quoteState.status === 'ready' ? `${sourceName(quoteState.source)} · ${sessionName(quoteState.session)} · ${quoteState.endpoint === 'fallback' ? '备用线路' : '主线路'}` : quoteState.status === 'loading' ? '正在更新行情' : '行情连接异常'}</span><button id="refreshQuotes" class="refresh-button" aria-label="刷新实时行情" title="刷新实时行情" ${quoteState.status === 'loading' ? 'disabled' : ''}><i data-lucide="refresh-cw"></i></button></div>
     </header>
     <main>
       <section class="market-strip" aria-label="市场指数">
@@ -104,15 +168,15 @@ function render() {
           <div class="panel-heading"><div><p class="eyebrow">WATCHLIST</p><h2>自选股</h2></div><button class="icon-button" id="addWatch" title="添加自选股" aria-label="添加自选股"><i data-lucide="plus"></i></button></div>
           <label class="search"><i data-lucide="search"></i><input id="search" value="${state.query}" placeholder="搜索股票代码或名称" /></label>
           <div class="sort-row"><span>${watchlist.length} 支股票</span><select id="sort" aria-label="自选股排序"><option value="default" ${state.sort==='default'?'selected':''}>默认排序</option><option value="gain" ${state.sort==='gain'?'selected':''}>涨幅优先</option><option value="loss" ${state.sort==='loss'?'selected':''}>跌幅优先</option></select></div>
-          <div class="watch-list">${watchlist.length ? watchlist.map(item => `<div class="watch-wrap"><button class="watch-item ${item.symbol===stock.symbol?'selected':''}" data-stock="${item.symbol}" aria-label="查看 ${item.name}"><div class="stock-id"><strong>${item.name}</strong><span>${item.symbol}.${item.market}</span></div><svg viewBox="0 0 120 38" aria-hidden="true"><polyline points="${sparkline(item.history)}" fill="none" stroke="${item.change >= 0 ? '#d94d4d' : '#0f9f6e'}" stroke-width="2"/></svg><div class="quote"><strong>${fmt(item.price)}</strong><span class="${signClass(item.change)}">${sign(item.change)}</span></div></button><button class="star-button" data-remove="${item.symbol}" aria-label="移除 ${item.name} 自选" title="移除自选"><i data-lucide="star"></i></button></div>`).join('') : `<div class="empty-state">没有匹配的自选股</div>`}</div>
+          <div class="watch-list">${watchlist.length ? watchlist.map(item => `<div class="watch-wrap"><button class="watch-item ${item.symbol===stock.symbol?'selected':''}" data-stock="${item.symbol}" aria-label="查看 ${item.name}"><div class="stock-id"><strong>${item.name}</strong><span>${item.symbol}.${item.market}</span></div><div class="quote"><strong>${fmt(item.price)}</strong><span class="${signClass(item.change)}">${sign(item.change)}</span></div></button><button class="star-button" data-remove="${item.symbol}" aria-label="移除 ${item.name} 自选" title="移除自选"><i data-lucide="star"></i></button></div>`).join('') : `<div class="empty-state">没有匹配的自选股</div>`}</div>
         </aside>
         <section class="market-main">
           <article class="quote-card panel">
             <div class="quote-header"><div><p class="eyebrow">${stock.symbol}.${stock.market} · ${stock.sector}</p><h1>${stock.name}</h1></div><button class="favorite active" data-remove="${stock.symbol}" aria-label="从自选列表移除 ${stock.name}"><i data-lucide="star"></i><span>已自选</span></button></div>
             <div class="hero-quote"><strong>${fmt(stock.price)}</strong><div class="${signClass(stock.change)}"><i data-lucide="${stock.change>=0?'arrow-up-right':'arrow-down-right'}"></i><span>${sign(stock.change)}</span></div></div>
-            <div class="chart-toolbar"><div class="ranges">${['1D','1W','1M','3M','1Y'].map(range => `<button class="${state.range===range?'active':''}" data-range="${range}">${range}</button>`).join('')}</div><span>截至 2026-07-24 收盘</span></div>
+            <div class="chart-toolbar"><strong>当日价格区间</strong><span>${sessionName(quoteState.session)} · 行情时间 ${quoteTime(stock.quoteTime)}</span></div>
             <div class="chart-wrap">${chart(stock)}</div>
-            <dl class="quote-stats"><div><dt>成交额</dt><dd>${stock.volume}</dd></div><div><dt>市盈率</dt><dd>${stock.pe}</dd></div><div><dt>今开</dt><dd>${fmt(stock.price*(1-stock.change/200))}</dd></div><div><dt>昨收</dt><dd>${fmt(stock.price/(1+stock.change/100))}</dd></div></dl>
+            <dl class="quote-stats"><div><dt>成交量</dt><dd>${volumeText(stock.volumeHands)}</dd></div><div><dt>今开</dt><dd>${stock.open ? fmt(stock.open) : '--'}</dd></div><div><dt>最高 / 最低</dt><dd>${stock.high && stock.low ? `${fmt(stock.high)} / ${fmt(stock.low)}` : '--'}</dd></div><div><dt>昨收</dt><dd>${stock.prevClose ? fmt(stock.prevClose) : '--'}</dd></div></dl>
           </article>
           <section class="holdings panel">
             <div class="panel-heading"><div><p class="eyebrow">POSITIONS</p><h2>持仓明细</h2></div><button class="command" id="addHolding"><i data-lucide="plus"></i>添加持仓</button></div>
@@ -123,11 +187,12 @@ function render() {
           <div class="panel-heading"><div><p class="eyebrow">PORTFOLIO</p><h2>投资组合</h2></div><span class="asset-count">${p.rows.length} 项资产</span></div>
           <div class="total-value"><span>总市值</span><strong>${money(p.marketValue)}</strong><div class="${signClass(p.profit)}"><span>累计盈亏</span><b>${p.profit>=0?'+':''}${money(p.profit)} · ${sign(p.rate)}</b></div></div>
           <div class="allocation"><div class="section-label"><span>资产配置</span><small>按当前市值</small></div><div class="allocation-bar">${p.rows.map((item,i)=>`<span style="width:${item.marketValue/p.marketValue*100}%;--c:${['#0f9f6e','#1c73d1','#e3a338','#697586'][i%4]}"></span>`).join('')}</div>${p.rows.map((item,i)=>`<div class="allocation-row"><span><i style="--c:${['#0f9f6e','#1c73d1','#e3a338','#697586'][i%4]}"></i>${item.stock.name}</span><strong>${fmt(item.marketValue/p.marketValue*100,1)}%</strong></div>`).join('')}</div>
-          <div class="insight"><i data-lucide="chart-no-axes-combined"></i><div><strong>组合观察</strong><p>当前组合集中于消费、新能源和金融板块。数据仅供产品演示，不构成投资建议。</p></div></div>
+          <div class="insight"><i data-lucide="chart-no-axes-combined"></i><div><strong>组合观察</strong><p>持仓市值按最新有效行情自动更新。行情可能存在网络与交易所延迟，不构成投资建议。</p></div></div>
         </aside>
       </div>
     </main>
-    <footer><span>JStock 数据工作台</span><span>演示数据 · 非实时行情 · 不构成投资建议</span></footer>
+    ${quoteState.status === 'error' ? `<div class="quote-alert" role="alert"><strong>实时行情暂不可用</strong><span>已保留最后一份有效数据，请稍后刷新。</span></div>` : ''}
+    <footer><span>JStock 数据工作台</span><span>${quoteState.status === 'ready' ? `${sourceName(quoteState.source)} · 更新 ${quoteTime([...stocks].sort((a,b) => new Date(b.quoteTime || 0) - new Date(a.quoteTime || 0))[0]?.quoteTime)}` : '行情连接中'} · 数据可能延迟 · 不构成投资建议</span></footer>
     <dialog id="holdingDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">NEW POSITION</p><h2>添加持仓</h2></div><button value="cancel" class="icon-button" aria-label="关闭"><i data-lucide="x"></i></button></div><label>股票<select id="holdingStock">${stocks.map(item=>`<option value="${item.symbol}">${item.name} ${item.symbol}</option>`).join('')}</select></label><div class="form-grid"><label>持有数量<input id="holdingShares" type="number" min="1" step="1" required placeholder="100" /></label><label>成本价<input id="holdingCost" type="number" min="0.01" step="0.01" required placeholder="0.00" /></label></div><button class="primary" id="confirmHolding" value="default">确认添加</button></form></dialog>
     <dialog id="watchDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">WATCHLIST</p><h2>添加自选股</h2></div><button value="cancel" class="icon-button" aria-label="关闭"><i data-lucide="x"></i></button></div><div class="stock-picker">${stocks.filter(item=>!state.watchlist.includes(item.symbol)).map(item=>`<button value="default" data-add-watch="${item.symbol}"><span><strong>${item.name}</strong><small>${item.symbol}.${item.market}</small></span><i data-lucide="plus"></i></button>`).join('') || '<p class="empty-state">全部股票已在自选列表</p>'}</div></form></dialog>`;
   createIcons({ icons: { Search, Star, Plus, ArrowUpRight, ArrowDownRight, BriefcaseBusiness, ChartNoAxesCombined, LayoutDashboard, WalletCards, X, RefreshCw } });
@@ -135,9 +200,10 @@ function render() {
 }
 
 function bind() {
+  const refreshButton = document.querySelector('#refreshQuotes');
+  if (refreshButton) refreshButton.onclick = () => refreshQuotes({ force: true });
   document.querySelectorAll('[data-stock]').forEach(el => el.onclick = () => { state.selected = el.dataset.stock; render(); });
   document.querySelectorAll('[data-remove]').forEach(el => el.onclick = (event) => { event.stopPropagation(); state.watchlist = state.watchlist.filter(s => s !== el.dataset.remove); persist(); render(); });
-  document.querySelectorAll('[data-range]').forEach(el => el.onclick = () => { state.range = el.dataset.range; render(); });
   document.querySelectorAll('[data-mobile]').forEach(el => el.onclick = () => { state.mobileView = el.dataset.mobile; render(); });
   document.querySelector('[data-view="portfolio"]').onclick = () => { state.mobileView = 'portfolio'; document.querySelector('.portfolio-panel').scrollIntoView({ behavior: 'smooth' }); };
   const search = document.querySelector('#search');
@@ -162,3 +228,6 @@ function bind() {
 }
 
 render();
+refreshQuotes();
+const quoteTimer = window.setInterval(() => refreshQuotes(), 30_000);
+window.addEventListener('pagehide', () => window.clearInterval(quoteTimer), { once: true });
