@@ -193,3 +193,148 @@ test('mobile layout has no horizontal overflow and keeps refresh control', async
   await page.getByRole('button', { name: '组合' }).click();
   await expect(page.getByRole('heading', { name: '投资组合' })).toBeVisible();
 });
+
+test.describe('Paper Trading (模拟盘)', () => {
+
+  test.beforeEach(async ({ page }) => {
+    // Ensure clean paper accounts
+    await page.evaluate(() => localStorage.removeItem('jstock-paper-v2'));
+    await page.reload();
+    // Wait for initial quotes to settle
+    await expect(page.getByText('腾讯行情 · 已收市 · 主线路')).toBeVisible();
+  });
+
+  test('switches to paper mode and shows account tabs', async ({ page }) => {
+    await page.getByRole('button', { name: '模拟盘' }).click();
+    await expect(page.getByRole('heading', { name: '模拟盘' })).toBeVisible();
+    await expect(page.getByText('PAPER TRADING')).toBeVisible();
+    await expect(page.getByRole('button', { name: '大A账户' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '美股账户' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '数字资产' })).toBeVisible();
+  });
+
+  test('shows ¥500,000 initial cash for 大A account', async ({ page }) => {
+    await page.getByRole('button', { name: '模拟盘' }).click();
+    await expect(page.getByText('¥500,000.00').first()).toBeVisible();
+  });
+
+  test('switches between account tabs with correct currencies', async ({ page }) => {
+    await page.getByRole('button', { name: '模拟盘' }).click();
+    // 大A = ¥
+    await expect(page.getByText('¥500,000.00').first()).toBeVisible();
+    // 美股 = $
+    await page.getByRole('button', { name: '美股账户' }).click();
+    await expect(page.getByText('$500,000.00').first()).toBeVisible();
+    // 数字资产 = $
+    await page.getByRole('button', { name: '数字资产' }).click();
+    await expect(page.getByText('$500,000.00').first()).toBeVisible();
+  });
+
+  test('buys a CN stock and shows holding with correct P&L', async ({ page }) => {
+    await page.getByRole('button', { name: '模拟盘' }).click();
+    await expect(page.getByText('暂无持仓')).toBeVisible();
+
+    // Open buy dialog
+    await page.getByRole('button', { name: '买入' }).click();
+    await expect(page.getByText('模拟买入')).toBeVisible();
+
+    // Select 宁德时代 and buy 100 shares
+    await page.locator('#paperBuyStock').selectOption('300750');
+    await page.locator('#paperBuyShares').fill('100');
+    await page.getByRole('button', { name: '确认买入' }).click();
+
+    // Holding should appear in paper table
+    const paperTable = page.locator('.paper-table');
+    await expect(paperTable.getByText('300750')).toBeVisible();
+    await expect(paperTable.getByText('100 股')).toBeVisible();
+    // Cash decreased: 500000 - 100*400 = 460000
+    await expect(page.getByText('¥460,000.00').first()).toBeVisible();
+    // Market value: 100*400 = 40,000
+    await expect(page.getByText('¥40,000.00').first()).toBeVisible();
+  });
+
+  test('isolates holdings between accounts', async ({ page }) => {
+    await page.getByRole('button', { name: '模拟盘' }).click();
+
+    // Buy in 大A
+    await page.getByRole('button', { name: '买入' }).click();
+    await page.locator('#paperBuyStock').selectOption('600519');
+    await page.locator('#paperBuyShares').fill('50');
+    await page.getByRole('button', { name: '确认买入' }).click();
+
+    const paperTable = page.locator('.paper-table');
+    await expect(paperTable.getByText('600519')).toBeVisible();
+
+    // Switch to 美股 - should be empty
+    await page.getByRole('button', { name: '美股账户' }).click();
+    await expect(page.getByText('暂无持仓')).toBeVisible();
+    await expect(page.getByText('$500,000.00').first()).toBeVisible();
+
+    // Buy in 美股
+    await page.getByRole('button', { name: '买入' }).click();
+    await page.locator('#paperBuyStock').selectOption('NVDA');
+    await page.locator('#paperBuyShares').fill('200');
+    await page.getByRole('button', { name: '确认买入' }).click();
+    await expect(paperTable.getByText('NVDA')).toBeVisible();
+
+    // Switch back to 大A - 贵州茅台 should still be there
+    await page.getByRole('button', { name: '大A账户' }).click();
+    await expect(paperTable.getByText('600519')).toBeVisible();
+    await expect(paperTable.getByText('NVDA')).toHaveCount(0);
+  });
+
+  test('sells a holding and cash increases', async ({ page }) => {
+    await page.getByRole('button', { name: '模拟盘' }).click();
+
+    // Buy 100 shares of 中国平安 @ 53.41
+    await page.getByRole('button', { name: '买入' }).click();
+    await page.locator('#paperBuyStock').selectOption('601318');
+    await page.locator('#paperBuyShares').fill('100');
+    await page.getByRole('button', { name: '确认买入' }).click();
+
+    const paperTable = page.locator('.paper-table');
+    await expect(paperTable.getByText('601318')).toBeVisible();
+
+    // Sell 50 shares
+    await page.getByRole('button', { name: '卖出' }).first().click();
+    await expect(page.getByText('模拟卖出')).toBeVisible();
+    await page.locator('#paperSellShares').fill('50');
+    await page.getByRole('button', { name: '确认卖出' }).click();
+
+    // Should still show 50 shares remaining
+    await expect(paperTable.getByText('50 股')).toBeVisible();
+  });
+
+  test('crypto account can buy Bitcoin', async ({ page }) => {
+    await page.getByRole('button', { name: '模拟盘' }).click();
+    await page.getByRole('button', { name: '数字资产' }).click();
+
+    // Open buy dialog
+    await page.getByRole('button', { name: '买入' }).click();
+
+    // Should see crypto options in the select
+    await expect(page.locator('#paperBuyStock')).toBeVisible();
+    // Buy 1 BTC @ $65,242
+    await page.locator('#paperBuyStock').selectOption('BTC');
+    await page.locator('#paperBuyShares').fill('1');
+    await page.getByRole('button', { name: '确认买入' }).click();
+
+    const paperTable = page.locator('.paper-table');
+    await expect(paperTable.getByText('BTC')).toBeVisible();
+    // Cash: 500000 - 65242 = 434758
+    await expect(page.getByText('$434,758.00').first()).toBeVisible();
+  });
+
+  test('paper mode has no horizontal overflow on mobile viewport', async ({ page }) => {
+    await page.getByRole('button', { name: '模拟盘' }).click();
+    // Switch to mobile viewport
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(300);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(overflow).toBe(false);
+    // Paper panel should render correctly
+    await expect(page.getByRole('button', { name: '大A账户' })).toBeVisible();
+    await expect(page.getByText('¥500,000.00').first()).toBeVisible();
+  });
+
+});

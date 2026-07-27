@@ -1,7 +1,8 @@
 import './styles.css';
-import { createIcons, Search, Star, Plus, ArrowUpRight, ArrowDownRight, BriefcaseBusiness, ChartNoAxesCombined, LayoutDashboard, WalletCards, X, RefreshCw } from 'lucide';
+import { createIcons, Search, Star, Plus, ArrowUpRight, ArrowDownRight, BriefcaseBusiness, ChartNoAxesCombined, LayoutDashboard, WalletCards, X, RefreshCw, TrendingUp, RotateCcw } from 'lucide';
 import { marketIndexes, stocks, defaultHoldings } from './data.js';
 import { fetchAllMarkets } from './quote-api.js';
+import { loadAccounts, saveAccounts, resetAccounts, buy, sell, calcAccount, fmt$, stockAccount } from './paper-trading.js';
 
 const quoteState = {
   status: 'loading',
@@ -24,9 +25,15 @@ const state = {
   group: 'all',
   query: '',
   mobileView: 'market',
+  view: 'market',
+  paperTab: 'cn',
+  paperBuyStock: null,
   watchlist: load(STORAGE.watchlist, defaultWatchlist),
   holdings: load(STORAGE.holdings, defaultHoldings)
 };
+let paperAccounts = loadAccounts();
+// Expose stocks for paper-trading module
+window.__stocks = stocks;
 
 function load(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -185,10 +192,10 @@ function render() {
   document.querySelector('#app').innerHTML = `
     <header class="app-header">
       <a class="brand" href="#" aria-label="JStock 首页"><span class="brand-mark">J</span><strong>JStock</strong></a>
-      <nav aria-label="主导航"><button class="nav-item active"><i data-lucide="layout-dashboard"></i>行情工作台</button><button class="nav-item" data-view="portfolio"><i data-lucide="wallet-cards"></i>我的组合</button></nav>
+      <nav aria-label="主导航"><button class="nav-item active"><i data-lucide="layout-dashboard"></i>行情工作台</button><button class="nav-item" data-view="portfolio"><i data-lucide="wallet-cards"></i>我的组合</button><button class="nav-item" data-view="paper"><i data-lucide="trending-up"></i>模拟盘</button></nav>
       <div class="snapshot ${quoteState.status}"><span class="status-dot"></span><span>${quoteState.status === 'ready' ? `${sourceName(quoteState.source)} · ${sessionName(quoteState.session)} · ${quoteState.endpoint === 'fallback' ? '备用线路' : quoteState.endpoint === 'partial' ? '部分线路' : '主线路'}` : quoteState.status === 'loading' ? '正在更新行情' : '行情连接异常'}</span><button id="refreshQuotes" class="refresh-button" aria-label="刷新实时行情" title="刷新实时行情" ${quoteState.status === 'loading' ? 'disabled' : ''}><i data-lucide="refresh-cw"></i></button></div>
     </header>
-    <main>
+    <main class="${state.view === 'paper' ? 'view-paper' : ''}">
       <section class="market-strip" aria-label="全球市场指数">
         <div class="strip-title"><span>全球指数</span><small>中国 · 香港 · 日韩</small></div>
         ${marketIndexes.map(index => `<button class="index-card" data-index="${index.symbol}" aria-label="查看 ${index.name}"><span><strong>${index.name}</strong><small>${index.symbol} · ${index.currency}</small></span><span class="index-value"><b>${index.value > 0 ? fmt(index.value) : '--'}</b><i class="${signClass(index.change)}">${index.value > 0 ? sign(index.change) : '等待行情'}</i></span></button>`).join('')}
@@ -222,13 +229,70 @@ function render() {
           <div class="insight"><i data-lucide="chart-no-axes-combined"></i><div><strong>组合观察</strong><p>持仓市值按最新有效行情自动更新。行情可能存在网络与交易所延迟，不构成投资建议。</p></div></div>
         </aside>
       </div>
+      ${state.view === 'paper' ? `
+      <div class="paper-panel">
+        <div class="paper-header">
+          <div><p class="eyebrow">PAPER TRADING</p><h2>模拟盘</h2></div>
+          <button class="icon-button" id="paperReset" title="重置所有模拟账户" aria-label="重置模拟盘"><i data-lucide="rotate-ccw"></i></button>
+        </div>
+        <div class="paper-account-tabs" role="tablist">${['cn','us','crypto'].map(k => {
+          const cfg = { cn: '大A账户', us: '美股账户', crypto: '数字资产' };
+          return `<button class="${state.paperTab === k ? 'active' : ''}" data-paper-tab="${k}">${cfg[k]}</button>`;
+        }).join('')}</div>
+        ${(() => {
+          const acct = paperAccounts[state.paperTab];
+          const calc = calcAccount(acct, stocks);
+          return `
+          <div class="paper-summary">
+            <div class="paper-stat"><span>可用资金</span><strong>${fmt$(calc.cash, calc.currency)}</strong></div>
+            <div class="paper-stat"><span>持仓市值</span><strong>${fmt$(calc.marketValue, calc.currency)}</strong></div>
+            <div class="paper-stat"><span>总资产</span><strong>${fmt$(calc.totalAssets, calc.currency)}</strong></div>
+            <div class="paper-stat ${signClass(calc.totalProfit)}"><span>总盈亏</span><strong>${calc.totalProfit >= 0 ? '+' : ''}${fmt$(calc.totalProfit, calc.currency)} · ${calc.totalRate >= 0 ? '+' : ''}${fmt(calc.totalRate, 2)}%</strong></div>
+          </div>`;
+        })()}
+        <div class="paper-toolbar">
+          <span class="paper-count">${calcAccount(paperAccounts[state.paperTab], stocks).rows.length} 项持仓</span>
+          <button class="command" id="paperBuy"><i data-lucide="plus"></i>买入</button>
+        </div>
+        <div class="table-scroll"><table class="paper-table">
+          <thead><tr><th>股票</th><th>持有数量</th><th>均价</th><th>现价</th><th>市值</th><th>盈亏</th><th>操作</th></tr></thead>
+          <tbody>${(() => {
+            const calc = calcAccount(paperAccounts[state.paperTab], stocks);
+            if (!calc.rows.length) return '<tr><td colspan="7" class="empty-state">暂无持仓。点击"买入"开始模拟交易。</td></tr>';
+            return calc.rows.map(r => `<tr>
+              <td><strong>${r.name}</strong><span>${r.symbol}</span></td>
+              <td>${r.shares} 股</td>
+              <td>${fmt$(r.avgCost, calc.currency)}</td>
+              <td>${r.price > 0 ? fmt$(r.price, calc.currency) : '--'}</td>
+              <td>${fmt$(r.marketValue, calc.currency)}</td>
+              <td class="${signClass(r.profit)}"><strong>${r.profit >= 0 ? '+' : ''}${fmt$(r.profit, calc.currency)}</strong><span>${r.rate >= 0 ? '+' : ''}${fmt(r.rate, 2)}%</span></td>
+              <td><button class="paper-sell-btn" data-paper-sell="${r.symbol}" ${r.price > 0 ? '' : 'disabled'}>卖出</button></td>
+            </tr>`).join('');
+          })()}</tbody>
+        </table></div>
+      </div>` : ''}
     </main>
     ${quoteState.warnings.length ? `<div class="quote-warning" role="status">部分行情暂不可用：${quoteState.warnings.join('、')}。其他市场数据已正常更新。</div>` : ''}
     ${quoteState.status === 'error' ? `<div class="quote-alert" role="alert"><strong>实时行情暂不可用</strong><span>已保留最后一份有效数据，请稍后刷新。</span></div>` : ''}
     <footer><span>JStock 数据工作台</span><span>${quoteState.status === 'ready' ? `${sourceName(quoteState.source)} · 更新 ${quoteTime([...stocks].sort((a,b) => new Date(b.quoteTime || 0) - new Date(a.quoteTime || 0))[0]?.quoteTime)}` : '行情连接中'} · 数据可能延迟 · 不构成投资建议</span></footer>
     <dialog id="holdingDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">NEW POSITION</p><h2>添加持仓</h2></div><button value="cancel" class="icon-button" aria-label="关闭"><i data-lucide="x"></i></button></div><label>股票<select id="holdingStock">${stocks.filter(item => item.portfolioEligible).map(item=>`<option value="${item.symbol}">${item.name} ${item.symbol}</option>`).join('')}</select></label><div class="form-grid"><label>持有数量<input id="holdingShares" type="number" min="1" step="1" required placeholder="100" /></label><label>成本价<input id="holdingCost" type="number" min="0.01" step="0.01" required placeholder="0.00" /></label></div><button class="primary" id="confirmHolding" value="default">确认添加</button></form></dialog>
-    <dialog id="watchDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">WATCHLIST</p><h2>添加自选股</h2></div><button value="cancel" class="icon-button" aria-label="关闭"><i data-lucide="x"></i></button></div><div class="stock-picker">${stocks.filter(item=>!state.watchlist.includes(item.symbol)).map(item=>`<button value="default" data-add-watch="${item.symbol}"><span><strong>${item.name}</strong><small>${item.symbol}.${item.market}</small></span><i data-lucide="plus"></i></button>`).join('') || '<p class="empty-state">全部股票已在自选列表</p>'}</div></form></dialog>`;
-  createIcons({ icons: { Search, Star, Plus, ArrowUpRight, ArrowDownRight, BriefcaseBusiness, ChartNoAxesCombined, LayoutDashboard, WalletCards, X, RefreshCw } });
+    <dialog id="watchDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">WATCHLIST</p><h2>添加自选股</h2></div><button value="cancel" class="icon-button" aria-label="关闭"><i data-lucide="x"></i></button></div><div class="stock-picker">${stocks.filter(item=>!state.watchlist.includes(item.symbol)).map(item=>`<button value="default" data-add-watch="${item.symbol}"><span><strong>${item.name}</strong><small>${item.symbol}.${item.market}</small></span><i data-lucide="plus"></i></button>`).join('') || '<p class="empty-state">全部股票已在自选列表</p>'}</div></form></dialog>
+    <dialog id="paperBuyDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">PAPER TRADE</p><h2>模拟买入</h2></div><button value="cancel" class="icon-button" aria-label="关闭"><i data-lucide="x"></i></button></div>
+      <p class="dialog-sub">账户：${paperAccounts[state.paperTab]?.name} · 可用 ${fmt$(paperAccounts[state.paperTab]?.cash || 0, paperAccounts[state.paperTab]?.currency || 'CNY')}</p>
+      <label>标的<select id="paperBuyStock">${stocks.filter(s => stockAccount(s.symbol) === state.paperTab && s.price > 0).map(s => `<option value="${s.symbol}">${s.name} ${s.symbol} · ${fmt$(s.price, s.currency)}</option>`).join('')}</select></label>
+      <div class="form-grid"><label>数量（股）<input id="paperBuyShares" type="number" min="1" step="1" required placeholder="100" /></label><label>预估金额<span id="paperBuyTotal" class="paper-total-hint">--</span></label></div>
+      <div class="dialog-actions"><button class="primary" id="confirmPaperBuy" value="default">确认买入</button></div>
+    </form></dialog>
+    <dialog id="paperSellDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">PAPER TRADE</p><h2>模拟卖出</h2></div><button value="cancel" class="icon-button" aria-label="关闭"><i data-lucide="x"></i></button></div>
+      <p class="dialog-sub" id="paperSellInfo">选择要卖出的标的和数量</p>
+      <label>标的<select id="paperSellStock">${(() => {
+        const calc = calcAccount(paperAccounts[state.paperTab], stocks);
+        return calc.rows.map(r => `<option value="${r.symbol}" data-shares="${r.shares}" data-price="${r.price}" data-name="${r.name}">${r.name} ${r.symbol} · 持有 ${r.shares} 股 · 现价 ${fmt$(r.price, calc.currency)}</option>`).join('');
+      })()}</select></label>
+      <div class="form-grid"><label>卖出数量<input id="paperSellShares" type="number" min="1" step="1" required placeholder="100" /></label><label>最大可卖<span id="paperSellMax" class="paper-total-hint">--</span></label></div>
+      <div class="dialog-actions"><button class="primary danger" id="confirmPaperSell" value="default">确认卖出</button></div>
+    </form></dialog>`;
+  createIcons({ icons: { Search, Star, Plus, ArrowUpRight, ArrowDownRight, BriefcaseBusiness, ChartNoAxesCombined, LayoutDashboard, WalletCards, X, RefreshCw, TrendingUp, RotateCcw } });
   bind();
 }
 
@@ -240,7 +304,96 @@ function bind() {
   document.querySelectorAll('[data-remove]').forEach(el => el.onclick = (event) => { event.stopPropagation(); state.watchlist = state.watchlist.filter(s => s !== el.dataset.remove); persist(); render(); });
   document.querySelectorAll('[data-group]').forEach(el => el.onclick = () => { state.group = el.dataset.group; render(); });
   document.querySelectorAll('[data-mobile]').forEach(el => el.onclick = () => { state.mobileView = el.dataset.mobile; render(); });
-  document.querySelector('[data-view="portfolio"]').onclick = () => { state.mobileView = 'portfolio'; document.querySelector('.portfolio-panel').scrollIntoView({ behavior: 'smooth' }); };
+  document.querySelectorAll('[data-view]').forEach(el => el.onclick = () => {
+    const view = el.dataset.view;
+    state.view = view;
+    if (view === 'portfolio') state.mobileView = 'portfolio';
+    else if (view === 'market') state.mobileView = 'market';
+    render();
+    if (view === 'portfolio') document.querySelector('.portfolio-panel')?.scrollIntoView({ behavior: 'smooth' });
+  });
+  // Paper trading account tabs
+  document.querySelectorAll('[data-paper-tab]').forEach(el => el.onclick = () => { state.paperTab = el.dataset.paperTab; render(); });
+  // Paper reset
+  const paperReset = document.querySelector('#paperReset');
+  if (paperReset) paperReset.onclick = () => {
+    if (!confirm('确定重置所有模拟账户？三个账户将回到各 ¥$500,000 初始资金。')) return;
+    paperAccounts = resetAccounts();
+    render();
+  };
+  // Paper buy dialog
+  const paperBuyDialog = document.querySelector('#paperBuyDialog');
+  document.querySelector('#paperBuy')?.addEventListener('click', () => paperBuyDialog?.showModal());
+  const paperBuyStock = document.querySelector('#paperBuyStock');
+  const paperBuyShares = document.querySelector('#paperBuyShares');
+  const paperBuyTotal = document.querySelector('#paperBuyTotal');
+  function updateBuyTotal() {
+    if (!paperBuyStock || !paperBuyShares || !paperBuyTotal) return;
+    const symbol = paperBuyStock.value;
+    const stock = stocks.find(s => s.symbol === symbol);
+    const shares = Number(paperBuyShares.value);
+    if (stock && stock.price > 0 && shares > 0) {
+      const total = shares * stock.price;
+      const acct = paperAccounts[state.paperTab];
+      paperBuyTotal.textContent = `${fmt$(total, acct.currency)} (${fmt$(stock.price, acct.currency)} × ${shares})`;
+    } else {
+      paperBuyTotal.textContent = '--';
+    }
+  }
+  if (paperBuyStock) paperBuyStock.onchange = updateBuyTotal;
+  if (paperBuyShares) paperBuyShares.oninput = updateBuyTotal;
+  document.querySelector('#confirmPaperBuy')?.addEventListener('click', e => {
+    const symbol = document.querySelector('#paperBuyStock')?.value;
+    const shares = Number(document.querySelector('#paperBuyShares')?.value);
+    const stock = stocks.find(s => s.symbol === symbol);
+    if (!symbol || !shares || !stock || !(stock.price > 0)) return;
+    e.preventDefault();
+    const result = buy(paperAccounts, symbol, shares, stock.price);
+    if (!result.ok) { alert(result.error); return; }
+    paperAccounts = loadAccounts();
+    paperBuyDialog?.close();
+    render();
+  });
+  // Paper sell dialog
+  const paperSellDialog = document.querySelector('#paperSellDialog');
+  document.querySelectorAll('[data-paper-sell]').forEach(el => el.onclick = () => {
+    state.paperBuyStock = el.dataset.paperSell;
+    render();
+    const dialog = document.querySelector('#paperSellDialog');
+    if (dialog) {
+      dialog.showModal();
+      const sel = document.querySelector('#paperSellStock');
+      if (sel) { sel.value = state.paperBuyStock; updateSellInfo(); }
+    }
+  });
+  const paperSellStock = document.querySelector('#paperSellStock');
+  const paperSellShares = document.querySelector('#paperSellShares');
+  const paperSellMax = document.querySelector('#paperSellMax');
+  const paperSellInfo = document.querySelector('#paperSellInfo');
+  function updateSellInfo() {
+    if (!paperSellStock || !paperSellMax || !paperSellInfo) return;
+    const opt = paperSellStock.options[paperSellStock.selectedIndex];
+    const shares = opt?.dataset?.shares || 0;
+    const price = opt?.dataset?.price || 0;
+    const name = opt?.dataset?.name || '';
+    paperSellMax.textContent = `${shares} 股`;
+    const acct = paperAccounts[state.paperTab];
+    paperSellInfo.textContent = `${name} · 持有 ${shares} 股 · 现价 ${fmt$(Number(price), acct.currency)}`;
+    if (paperSellShares) paperSellShares.max = shares;
+  }
+  if (paperSellStock) paperSellStock.onchange = updateSellInfo;
+  document.querySelector('#confirmPaperSell')?.addEventListener('click', e => {
+    const symbol = document.querySelector('#paperSellStock')?.value;
+    const shares = Number(document.querySelector('#paperSellShares')?.value);
+    const stock = stocks.find(s => s.symbol === symbol);
+    if (!symbol || !shares || !stock || !(stock.price > 0)) return;
+    e.preventDefault();
+    const result = sell(paperAccounts, symbol, shares, stock.price);
+    if (!result.ok) { alert(result.error); return; }
+    paperAccounts = loadAccounts();
+    paperSellDialog?.close();
+    render();
+  });
   const search = document.querySelector('#search');
   search.oninput = () => { state.query = search.value; const pos = search.selectionStart; render(); const next = document.querySelector('#search'); next.focus(); next.setSelectionRange(pos,pos); };
   document.querySelector('#sort').onchange = e => { state.sort = e.target.value; render(); };
