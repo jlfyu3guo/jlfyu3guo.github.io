@@ -1,8 +1,10 @@
 export const marketIndexes = [
-  { symbol: '000001', name: '上证指数', value: 3394.52, change: 0.46 },
-  { symbol: '399001', name: '深证成指', value: 10876.13, change: 0.82 },
-  { symbol: '399006', name: '创业板指', value: 2187.64, change: 1.12 },
-  { symbol: 'HSI', name: '恒生指数', value: 24725.62, change: -0.31 }
+  { symbol: '000001', name: '上证指数', value: 3394.52, change: 0.46, group: 'cn', market: 'SH', currency: 'CNY' },
+  { symbol: '399001', name: '深证成指', value: 10876.13, change: 0.82, group: 'cn', market: 'SZ', currency: 'CNY' },
+  { symbol: '399006', name: '创业板指', value: 2187.64, change: 1.12, group: 'cn', market: 'SZ', currency: 'CNY' },
+  { symbol: 'HSI', name: '恒生指数', value: 24725.62, change: -0.31, group: 'hk', market: 'HK', currency: 'HKD' },
+  { symbol: 'NI225', name: '日经225', value: 0, change: 0, group: 'asia', market: 'JP', currency: 'JPY' },
+  { symbol: 'KOSPI', name: '韩国KOSPI', value: 0, change: 0, group: 'asia', market: 'KR', currency: 'KRW' }
 ];
 
 const histories = {
@@ -15,12 +17,20 @@ const histories = {
 };
 
 export const stocks = [
-  { symbol: '600519', market: 'SH', name: '贵州茅台', sector: '消费', price: 1559.32, change: 1.08, volume: '34.2亿', pe: 23.6, history: histories['600519'] },
-  { symbol: '300750', market: 'SZ', name: '宁德时代', sector: '新能源', price: 251.08, change: 2.36, volume: '71.8亿', pe: 19.8, history: histories['300750'] },
-  { symbol: '601318', market: 'SH', name: '中国平安', sector: '金融', price: 56.12, change: 0.74, volume: '46.5亿', pe: 8.2, history: histories['601318'] },
-  { symbol: '000858', market: 'SZ', name: '五粮液', sector: '消费', price: 159.06, change: -0.63, volume: '29.1亿', pe: 18.9, history: histories['000858'] },
-  { symbol: '0700', market: 'HK', name: '腾讯控股', sector: '科技', price: 502.00, change: -1.18, volume: '88.7亿', pe: 21.4, history: histories['0700'] },
-  { symbol: 'AAPL', market: 'US', name: 'Apple', sector: '科技', price: 252.04, change: 0.92, volume: '63.4亿', pe: 31.2, history: histories.AAPL }
+  { symbol: '600519', market: 'SH', name: '贵州茅台', sector: '消费', price: 1559.32, change: 1.08, group: 'cn', currency: 'CNY', portfolioEligible: true, history: histories['600519'] },
+  { symbol: '300750', market: 'SZ', name: '宁德时代', sector: '新能源', price: 251.08, change: 2.36, group: 'cn', currency: 'CNY', portfolioEligible: true, history: histories['300750'] },
+  { symbol: '601318', market: 'SH', name: '中国平安', sector: '金融', price: 56.12, change: 0.74, group: 'cn', currency: 'CNY', portfolioEligible: true, history: histories['601318'] },
+  { symbol: '000858', market: 'SZ', name: '五粮液', sector: '消费', price: 159.06, change: -0.63, group: 'cn', currency: 'CNY', portfolioEligible: true, history: histories['000858'] },
+  { symbol: '0700', market: 'HK', name: '腾讯控股', sector: '科技', price: 502.00, change: -1.18, group: 'hk', currency: 'HKD', portfolioEligible: false, history: histories['0700'] },
+  { symbol: 'AAPL', market: 'US', name: 'Apple', sector: '科技', price: 252.04, change: 0.92, group: 'us', currency: 'USD', portfolioEligible: false, history: histories.AAPL },
+  { symbol: 'MSFT', market: 'US', name: 'Microsoft', sector: '科技', price: 0, change: 0, group: 'us', currency: 'USD', portfolioEligible: false },
+  { symbol: 'NVDA', market: 'US', name: 'NVIDIA', sector: '半导体', price: 0, change: 0, group: 'us', currency: 'USD', portfolioEligible: false },
+  { symbol: 'TSLA', market: 'US', name: 'Tesla', sector: '汽车', price: 0, change: 0, group: 'us', currency: 'USD', portfolioEligible: false },
+  { symbol: 'GOOGL', market: 'US', name: 'Alphabet', sector: '科技', price: 0, change: 0, group: 'us', currency: 'USD', portfolioEligible: false },
+  { symbol: 'AMZN', market: 'US', name: 'Amazon', sector: '消费', price: 0, change: 0, group: 'us', currency: 'USD', portfolioEligible: false },
+  { symbol: 'BTC', market: 'CRYPTO', name: 'Bitcoin', sector: '数字资产', price: 0, change: 0, group: 'crypto', currency: 'USD', portfolioEligible: false },
+  { symbol: 'ETH', market: 'CRYPTO', name: 'Ethereum', sector: '数字资产', price: 0, change: 0, group: 'crypto', currency: 'USD', portfolioEligible: false },
+  { symbol: 'SOL', market: 'CRYPTO', name: 'Solana', sector: '数字资产', price: 0, change: 0, group: 'crypto', currency: 'USD', portfolioEligible: false }
 ];
 
 export const defaultHoldings = [
