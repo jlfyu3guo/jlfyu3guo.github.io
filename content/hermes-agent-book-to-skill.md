@@ -5,6 +5,9 @@ category: AI Agent
 tags: [book-to-skill, Hermes Agent, Agent Skills, 知识管理, 上下文优化]
 source: 昕科技
 source_url: "https://mp.weixin.qq.com/s/FvNZvM8ymi_g1UZsRfU0kw"
+repo_url: "https://github.com/virgiliojr94/book-to-skill"
+repo_name: "github.com/virgiliojr94/book-to-skill"
+skills_note: "安装：pip install git+https://github.com/virgiliojr94/book-to-skill.git　|　生成的技能放入 ~/.hermes/skills/ 即可被 Hermes 加载"
 summary: 开源工具 book-to-skill 把技术书预编译成 Agent 可直接加载的技能：按章节懒加载，单次查询仅约 5K token，比全文注入上下文省 24~51 倍；核心价值是从"检索相似段落"升级为"直接调用作者框架"。
 ---
 

@@ -14,6 +14,9 @@ export const articles = [
     ],
     "source": "昕科技",
     "source_url": "https://mp.weixin.qq.com/s/FvNZvM8ymi_g1UZsRfU0kw",
+    "repo_url": "https://github.com/virgiliojr94/book-to-skill",
+    "repo_name": "github.com/virgiliojr94/book-to-skill",
+    "skills_note": "安装：pip install git+https://github.com/virgiliojr94/book-to-skill.git　|　生成的技能放入 ~/.hermes/skills/ 即可被 Hermes 加载",
     "summary": "开源工具 book-to-skill 把技术书预编译成 Agent 可直接加载的技能：按章节懒加载，单次查询仅约 5K token，比全文注入上下文省 24~51 倍；核心价值是从\"检索相似段落\"升级为\"直接调用作者框架\"。",
     "html": "<h2>一句话</h2>\n<p><strong>book-to-skill</strong> 是一个&quot;技能编译器&quot;：把技术书（PDF/文本）预编译成 AI Agent 能直接加载的 Skill，而不是每次把全书塞进上下文让它慢慢翻页。</p>\n<h2>核心知识点</h2>\n<p><strong>1. 结构：懒加载是省 token 的关键</strong></p>\n<p>输出是一个标准技能目录，章节按需加载：</p>\n<pre><code class=\"language-text\">skills/&lt;book-name&gt;/\n├── SKILL.md      # 核心心智模型 + 章节索引（~4K tokens）\n├── chapters/     # 每章一个文件，按需加载（各 ~1K tokens）\n├── glossary.md   # 术语表\n├── patterns.md   # 技术/算法/设计模式\n└── cheatsheet.md # 决策表 + 速查\n</code></pre>\n<p>不问某一章，那一章就不占 token 预算。</p>\n<p><strong>2. 收益：不是省一点，是省几十倍</strong></p>\n<table>\n<thead>\n<tr>\n<th>方式</th>\n<th>Token/问题</th>\n<th>倍数</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>全书注入上下文</td>\n<td>119K–256K</td>\n<td>24×–51×</td>\n</tr>\n<tr>\n<td>Agent 自行翻页搜索</td>\n<td>12K–78K</td>\n<td>2.4×–15.6×</td>\n</tr>\n<tr>\n<td><strong>book-to-skill</strong></td>\n<td><strong>~5,000</strong></td>\n<td>—</td>\n</tr>\n</tbody></table>\n<p>关键差别：全文注入<strong>每轮对话都要付</strong>成本；skill 只付一次性提取成本（约 $1/本），之后每次查询只加载几千 token。</p>\n<p><strong>3. 与 RAG 的本质区别（最重要的一条）</strong></p>\n<ul>\n<li><strong>RAG</strong> → 切块 + 向量化 + 找相似段落，回答的是&quot;<strong>哪里提到了 X</strong>&quot;</li>\n<li><strong>book-to-skill</strong> → 提取作者构建的<strong>框架、原则、反模式、决策规则</strong>，回答的是&quot;<strong>这里有 12 个框架，拿去用</strong>&quot;</li>\n</ul>\n<p>Agent 加载 skill 后不是在翻书，而是在<strong>用作者的框架思考</strong>。省 token 只是副产品。</p>\n<h2>集成到 Hermes Agent（三步）</h2>\n<p>Hermes Agent 的 <code>~/.hermes/skills/</code> 兼容开放的 Agent Skills 标准，所以可直接复用。</p>\n<pre><code class=\"language-bash\"># 1. 安装\npip install git+https://github.com/virgiliojr94/book-to-skill.git\nbook-to-skill --check\n\n# 2. 把文档编译成技能\nbook-to-skill ~/books/技术书.pdf &lt;技能名&gt;\n# 多文件合并成一个技能也支持\nbook-to-skill ~/papers/a.pdf ~/notes/b.txt unified-research\n\n# 3. 让 Hermes 加载\ncp -r ~/.agents/skills/&lt;技能名&gt;/ ~/.hermes/skills/&lt;技能名&gt;/\n# 或软链（后续更新无需再复制）\nln -s ~/.agents/skills/&lt;技能名&gt; ~/.hermes/skills/&lt;技能名&gt;\n</code></pre>\n<p>调用方式：</p>\n<pre><code class=\"language-text\">@skill:&lt;技能名&gt; 讲一下这个框架的核心原则\n@skill:&lt;技能名&gt;/ch03 加载第三章内容\n</code></pre>\n<h2>适用范围</h2>\n<p>名字叫&quot;书转技能&quot;，但输入不限于书——<strong>架构决策记录、runbook、品牌指南、RFC、论文合集</strong>等任何你频繁翻阅的文档都适用。</p>\n<blockquote>\n<p>判断标准：如果一个文档频繁到你觉得&quot;要是我背下来就好了&quot;，它就是候选者。</p>\n</blockquote>\n<h2>现状</h2>\n<p>项目发布两个月即达 11.6k stars / 1.3k forks，说明&quot;知识无法随时调用&quot;是普遍痛点。</p>\n<p><strong>本质转变</strong>：不是&quot;更好地记笔记&quot;，而是<strong>让 AI 以它能直接理解的方式替你记住</strong>。</p>\n<hr>\n<p><em>测试环境：WSL2 + Python 3.13 · book-to-skill v1.2.0 · Hermes Agent（Nous Research）</em></p>\n"
   },
@@ -28,6 +31,9 @@ export const articles = [
     ],
     "source": "JStock 知识库",
     "source_url": "",
+    "repo_url": "",
+    "repo_name": "",
+    "skills_note": "",
     "summary": "这个网站用来存放从微信公众号收集的知识类文章，便于分类查找和搜索阅读。",
     "html": "<h1>欢迎使用「知识库」</h1>\n<p>这个网站用于<strong>存储和检索微信公众号的知识类文章</strong>。你可以把收藏的公众号文章（技术、生活、学习方法等）转成 Markdown 后放入 <code>content/</code> 目录，构建时自动生成索引。</p>\n<h2>功能</h2>\n<ul>\n<li><strong>分类浏览</strong>：每篇文章一个分类，点击分类标签即可筛选</li>\n<li><strong>全文搜索</strong>：支持标题、摘要和标签搜索</li>\n<li><strong>竖版阅读</strong>：文章按公众号文章样式排版，手机阅读舒适</li>\n<li><strong>原文链接</strong>：每篇文章保留公众号原文链接，方便核对</li>\n</ul>\n<h2>如何添加文章</h2>\n<ol>\n<li>在 <code>content/</code> 目录新建 <code>.md</code> 文件</li>\n<li>开头用 <code>---</code> 包裹的元信息（frontmatter）注明标题、日期、分类、标签</li>\n<li>正文用标准 Markdown 书写</li>\n<li>推送到 GitHub，网站自动重新构建发布</li>\n</ol>\n<h2>示例</h2>\n<p>这是一篇示例文章，用于演示网站功能。正式知识内容会将原公众号文章整理成 Markdown 后入库。</p>\n"
   }

@@ -53,6 +53,9 @@ const articles = files.map((file) => {
     tags: Array.isArray(meta.tags) ? meta.tags : [],
     source: meta.source || '',
     source_url: meta.source_url || '',
+    repo_url: meta.repo_url || '',
+    repo_name: meta.repo_name || '',
+    skills_note: meta.skills_note || '',
     summary: meta.summary || html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').slice(0, 120),
     html,
   };

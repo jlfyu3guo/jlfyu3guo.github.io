@@ -87,6 +87,12 @@ function renderArticle() {
           <span class="date">${fmtDate(a.date)}</span>
           ${a.source ? `<span class="source">来源：${esc(a.source)}</span>` : ''}
         </div>
+        ${a.repo_url ? `
+        <div class="repo-box">
+          <div class="repo-head"><span class="repo-icon">📦</span><span class="repo-label">技能库地址</span></div>
+          <a class="repo-link" href="${esc(a.repo_url)}" target="_blank" rel="noopener">${esc(a.repo_name || a.repo_url)}</a>
+          ${a.skills_note ? `<div class="repo-note">${esc(a.skills_note)}</div>` : ''}
+        </div>` : ''}
         <div class="article-body">${a.html}</div>
         ${a.tags.length ? `<div class="article-tags">${a.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>` : ''}
         ${a.source_url ? `<div class="article-origin"><a href="${esc(a.source_url)}" target="_blank" rel="noopener">查看公众号原文 ↗</a></div>` : ''}
