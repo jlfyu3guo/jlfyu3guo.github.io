@@ -6,7 +6,7 @@ tags: [LLM, 本地推理, Qwen, DeepSeek, GLM, Kimi, SenseNova, llama.cpp, 运�
 source: 知栈自维护
 source_url: "https://www.jstock.cc"
 skills_note: "直连三件套：地址 + 模型 + key。key 文件在工作站 ~/.config/xiaoma-ai/api-keys.txt（3 个：群晖 / 飞牛 / itassistant），按客户端前缀取自己的行，值不外传"
-summary: 局域网 LLM 服务清单（实时探测）：工作站 Qwen3.8-27B :8000、两台 NAS 的 SenseNova 代理 :18080（5 模型：sensenova-6.8-flash-lite / deepseek-v4-flash / glm-5.2 / kimi-k3 / deepseek-v4-pro），附 key 获取方式、ctx 限制与模型切换规则，接一条命令直连。
+summary: 局域网 LLM 服务清单（实时探测）：工作站 Qwen3.8-27B :8000、两台 NAS 的 SenseNova 代理 :18080（chat 5 模型 + 图片 2 模型 + 1 个套餐不含），附 key 获取方式、ctx 限制与模型切换规则，接一条命令直连。
 ---
 
 ## 一句话
@@ -19,25 +19,41 @@ summary: 局域网 LLM 服务清单（实时探测）：工作站 Qwen3.8-27B :8
 |---|---|---|---|
 | `http://192.168.1.115:8000/v1` | xiaoma-qwen3.8-27b | ✅ 在线 | 工作站 RTX 4070TiS 16GB，UD-Q3_K_XL 量化 |
 | `http://192.168.1.115:8001/v1` | （切换后启用） | ⬚ 当前未起 | 备用端口，模型切换时启用 |
-| `http://192.168.1.5:18080/v1` | 5 模型（见下表） | ✅ 在线 | 群晖 sensenova-proxy 容器，12 Key 轮转 |
-| `http://192.168.1.190:18080/v1` | 5 模型（见下表） | ✅ 在线 | 飞牛 sensenova-proxy 容器，独立 12 Key |
+| `http://192.168.1.5:18080/v1` | chat 5 + 图片 2 | ✅ 在线 | 群晖 sensenova-proxy 容器，12 Key 轮转 |
+| `http://192.168.1.190:18080/v1` | chat 5 + 图片 2 | ✅ 在线 | 飞牛 sensenova-proxy 容器，独立 12 Key |
 | `http://192.168.1.115:8080` | 旧中转 | ❌ 已下线 | 仅作兜底记忆，不要再配 |
 
-## SenseNova 代理可用模型（实测调用）
+## SenseNova 代理可用模型（实测调用 2026-10-08）
 
 代理为纯透传轮转，模型名直接传给上游 `token.sensenova.cn`，不做模型名映射。
+代理脚本仅接受两个路径：`/v1/chat/completions`（文本对话）和 `/v1/images/generations`（图片生成），不支持 `/v1/models`（返回 404）。
 
-| 模型名 | 群晖 :18080 | 飞牛 :18080 | itassistant :18082 | 说明 |
+### Chat 对话模型
+
+| 模型名 | 群晖 :18080 | 飞牛 :18080 | 本机 :18082 | 说明 |
 |---|---|---|---|---|
-| `sensenova-6.8-flash-lite` | ✅ 200 | ✅ 200 | ✅ 200 | 默认模型，最快 |
-| `deepseek-v4-flash` | ✅ 200 | ✅ 200 | ✅ 200 | 日常 NAS 默认 |
-| `glm-5.2` | ✅ 200 | ✅ 200 | ✅ 200 | 智谱 GLM，IT 助手当前使用 |
-| `kimi-k3` | ✅ 200 | ✅ 200 | ✅ 200 | 月之暗面 Kimi |
-| `deepseek-v4-pro` | ✅ 200 | ✅ 200 | ⚠️ 429 偶发 | 高性能版，高峰时限流 |
+| `sensenova-6.8-flash-lite` | ✅ 200 | ✅ 200 | ✅ 200 | 默认模型，最快，带 reasoning 推理链 |
+| `deepseek-v4-flash` | ✅ 200 | ✅ 200 | ✅ 200 | DeepSeek V4 Flash，日常 NAS 默认 |
+| `deepseek-v4-pro` | ✅ 200 | ✅ 200 | ⚠️ 429 偶发 | DeepSeek V4 Pro，高性能版，高峰时限流 |
+| `glm-5.2` | ✅ 200 | ✅ 200 | ✅ 200 | 智谱 GLM-5.2，IT 助手当前使用 |
+| `kimi-k3` | ✅ 200 | ✅ 200 | ✅ 200 | 月之暗面 Kimi K3 |
+| `deepseek-v4.1-flash` | ⚠️ 套餐不含 | ⚠️ 套餐不含 | ⚠️ 套餐不含 | 模型存在，返回 "not available in current token plan" |
 
-- 群晖与飞牛配置完全一致，两台 NAS 都在 config.yaml 的 `sensenova.models` 列表里注册了全部 5 个模型
-- `deepseek-v4-pro` 首次探测返回 429（Key 限流），第二次 200 —— 高峰期偶发，非永久故障
-- itassistant 本地 `:18082` 是同一套代理的本地端口，走 `SENSENOVA_IT_PROXY_KEY`
+- 群晖与飞牛 config.yaml 的 `sensenova.models` 注册了前 5 个（不含 v4.1-flash）
+- `deepseek-v4-pro` 首次探测 429（Key 限流），第二次 200 —— 高峰期偶发
+- `deepseek-v4.1-flash` 是新版 DeepSeek，上游已有但当前 Token Plan 套餐不包含，需升级套餐才能用
+- 已废弃模型：`deepseek-v4.1-pro`（not found）、`kimi-k2`（not found）、`glm-4.7-flash`（not found）
+
+### 图片生成模型
+
+| 模型名 | 本机 :18082 | 说明 |
+|---|---|---|
+| `sensenova-u1-fast` | ✅ 200 | 商汤 U1 Fast，文生图 |
+| `sensenova-u1.5-lite` | ✅ 200 | 商汤 U1.5 Lite，文生图，支持参考图编辑 |
+
+- 图片端点：`POST /v1/images/generations`，参数 `model`/`prompt`/`n`/`size`
+- `size` 必须是 `auto` 或 `WIDTHxHEIGHT`（宽高为 32 的倍数）
+- 图片模型不可用于 chat 端点（返回 not found），反之亦然
 
 ## Hermes 配置分布
 
@@ -74,8 +90,14 @@ curl http://192.168.1.5:18080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"sensenova-6.8-flash-lite","messages":[{"role":"user","content":"ping"}]}'
 
-# 切换模型只需改 model 字段（5 选 1）
+# 切换模型只需改 model 字段（chat 5 选 1）
 # sensenova-6.8-flash-lite / deepseek-v4-flash / glm-5.2 / kimi-k3 / deepseek-v4-pro
+
+# 图片生成（sensenova-u1-fast / sensenova-u1.5-lite）
+curl http://192.168.1.5:18080/v1/images/generations \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"sensenova-u1-fast","prompt":"a red cat","n":1,"size":"auto"}'
 ```
 
 ## 使用限制与规则
